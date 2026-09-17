@@ -2,8 +2,8 @@ const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
 const axios = require('axios');
 
 const manifest = {
-  id: 'org.ryan.vejaaebr.v0110',
-  version: '0.1.10',
+  id: 'org.ryan.vejaaebr.v0111',
+  version: '0.1.11',
   name: 'VEJA AE BR ELITE',
   icon: 'https://i.imgur.com/507gQfU.png',
   description: 'A Elite da Filtragem PT-BR: Dublagem Autêntica e Nacional Puro. Rejeição severa de Dual e Estrangeiro.',
@@ -77,6 +77,7 @@ async function getMediaInfo(type, id) {
   let year = null;
   let isNational = false;
 
+  // 1. Tenta pegar pelo TMDB se for ID tmdb:
   if (rawId.startsWith('tmdb:')) {
     const tmdbNum = rawId.replace('tmdb:', '');
     const tmdbType = (type === 'series' || type === 'tv') ? 'tv' : 'movie';
@@ -89,12 +90,36 @@ async function getMediaInfo(type, id) {
       if (res.data?.original_language === 'pt' || res.data?.origin_country?.includes('BR')) isNational = true;
     } catch (e) {}
   }
+
+  // 2. Se for ID do IMDB (tt...), pega os dados básicos do Cinemeta nativo do Stremio
+  if (!title) {
+    try {
+      const res = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${rawId}.json`, httpConfig);
+      title = res.data?.meta?.name;
+      year = res.data?.meta?.year;
+    } catch (e) {}
+  }
+
+  // 3. Confirmação reversa: Tenta checar a nacionalidade no TMDB usando o ID do IMDB
+  if (rawId.startsWith('tt')) {
+     try {
+        const findUrl = `https://api.themoviedb.org/3/find/${rawId}?api_key=1f5428d06f4f40d7020c1073180b63d9&external_source=imdb_id`;
+        const findRes = await axios.get(findUrl, httpConfig);
+        const tmdbMatch = findRes.data.movie_results?.[0] || findRes.data.tv_results?.[0];
+        if (tmdbMatch) {
+           if (tmdbMatch.original_language === 'pt' || (tmdbMatch.origin_country && tmdbMatch.origin_country.includes('BR'))) {
+               isNational = true;
+           }
+        }
+     } catch(e) {}
+  }
+
   return { title, year, isNational };
 }
 
 builder.defineStreamHandler(async ({ type, id }) => {
   console.log(`\n==================================================`);
-  console.log(`🔎 VEJA AE BR ELITE v0.1.10 | ID: ${id}`);
+  console.log(`🔎 VEJA AE BR ELITE v0.1.11 | ID: ${id}`);
 
   let streams = [];
   let allRawStreams = [];
@@ -102,7 +127,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
   try {
     const media = await getMediaInfo(type, id);
     if (!media.title) {
-       console.log(`⚠️ ID não mapeado no TMDB. Abortando busca para evitar falsos positivos.`);
+       console.log(`⚠️ ID não mapeado no TMDB ou Cinemeta. Abortando busca para evitar falsos positivos.`);
        return { streams: [] };
     }
     const officialYear = media.year ? String(media.year) : null;
@@ -161,4 +186,4 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
 const PORT = process.env.PORT || 7000;
 serveHTTP(builder.getInterface(), { port: PORT });
-console.log(`🚀 Servidor VEJA AE BR ELITE v0.1.10 ativo na porta ${PORT}`);
+console.log(`🚀 Servidor VEJA AE BR ELITE v0.1.11 ativo na porta ${PORT}`);
