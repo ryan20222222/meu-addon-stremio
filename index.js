@@ -2,10 +2,10 @@ const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
 const axios = require('axios');
 
 const manifest = {
-  id: 'org.ryan.flomesbr.v7',
-  version: '0.0.369',
+  id: 'org.ryan.flomesbr.v8',
+  version: '8.0.0',
   name: 'flomes BR',
-  description: 'Addon blindado 100% BR e gratis usando Torrentio como ponte para filmes (as vezes instavel)',
+  description: 'Addon blindado 100% BR usando Torrentio como ponte',
   resources: ['stream'],
   types: ['movie', 'series'],
   catalogs: [],
@@ -15,22 +15,34 @@ const manifest = {
 const builder = new addonBuilder(manifest);
 
 const httpConfig = {
-  timeout: 10000 // 10 segundos para dar tempo do Torrentio responder
+  timeout: 10000
 };
 
-// Nossas palavras-chave de segurança
-const PTBR_KEYWORDS = ['dublado', 'dual', 'pt-br', 'ptbr', 'portugues', 'pt_br'];
+// Palavras-chave obrigatórias para ser considerado PT-BR
+const PTBR_KEYWORDS = ['dublado', 'dual', 'pt-br', 'ptbr', 'portugues', 'pt_br', 'brazilian'];
+
+// Palavras-chave para BLOQUEAR (Espanhol e Português de Portugal)
+const EXCLUDE_KEYWORDS = ['espanol', 'español', 'castellano', 'latino', 'pt-pt', 'pt_pt', 'portugal', 'doblado'];
 
 function isPtBr(title) {
   const t = title.toLowerCase();
+  
+  // 1. Se contiver termos em espanhol ou PT-PT e NÃO tiver "pt-br"/"ptbr" explícito, descarta
+  const hasExclude = EXCLUDE_KEYWORDS.some(kw => t.includes(kw));
+  const hasExplicitPtBr = t.includes('pt-br') || t.includes('ptbr') || t.includes('pt_br');
+
+  if (hasExclude && !hasExplicitPtBr) {
+    return false;
+  }
+
+  // 2. Precisa ter pelo menos uma palavra-chave de áudio BR
   return PTBR_KEYWORDS.some(kw => t.includes(kw));
 }
 
-// Extrai qualidade e áudio para os botões do Nuvio
 function getAudioInfo(title) {
   const text = title.toLowerCase();
   if (text.includes('dual') || (text.includes('dublado') && text.includes('legendado'))) return '🇧🇷 DUAL ÁUDIO';
-  if (text.includes('dublado') || text.includes('ptbr') || text.includes('pt-br') || text.includes('portugues')) return '🇧🇷 DUBLADO';
+  if (text.includes('dublado') || text.includes('ptbr') || text.includes('pt-br') || text.includes('portugues')) return '🇧🇷 DUBLADO (PT-BR)';
   if (text.includes('legendado') || text.includes('subbed') || text.includes('leg')) return '🇺🇸 LEGENDADO (PT-BR)';
   return '🇧🇷 PT-BR';
 }
@@ -43,13 +55,11 @@ function getQualityInfo(title) {
   return 'HD';
 }
 
-// Extrai número de seeders do texto do Torrentio
 function getSeeders(title) {
   const match = title.match(/👤\s*(\d+)/);
   return match ? match[1] : 'N/A';
 }
 
-// Busca Metadados do Stremio/Cinemeta para validar o Ano
 async function getMediaInfo(type, id) {
   const rawId = id.split(':')[0];
   let title = null;
@@ -71,30 +81,25 @@ builder.defineStreamHandler(async ({ type, id }) => {
   let streams = [];
 
   try {
-    // 1. Pega os dados oficiais do filme
     const media = await getMediaInfo(type, id);
     const officialYear = media.year ? String(media.year) : null;
     console.log(`🎬 Validando: "${media.title || 'Desconhecido'}" (${officialYear || '?'})`);
 
-    // 2. Faz a ponte pelo Torrentio
-    console.log(`🌐 Extraindo links base do Torrentio...`);
     const torrentioUrl = `https://torrentio.strem.fun/stream/${type}/${id}.json`;
-    
     const response = await axios.get(torrentioUrl, httpConfig);
     const torrentioStreams = response.data.streams || [];
 
-    // 3. Aplica os seus filtros
     torrentioStreams.forEach(tStream => {
       const fullText = (tStream.title || "").toLowerCase() + " " + (tStream.name || "").toLowerCase();
 
-      // FILTRO 1: Só passa se tiver tag de dublagem do Brasil
+      // Filtro Anti-Espanhol / Anti-PT-PT e obrigatoriedade PT-BR
       if (!isPtBr(fullText)) return;
 
-      // FILTRO 2: Validação rigorosa de ano
+      // Validação rigorosa de ano
       if (officialYear && fullText.includes('20')) {
         const yearsInText = fullText.match(/20\d{2}/g);
         if (yearsInText && !yearsInText.includes(officialYear)) {
-          return; 
+          return;
         }
       }
 
@@ -103,7 +108,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
       const seeders = getSeeders(tStream.title || "");
 
       streams.push({
-        name: `[${quality}]`,
+        name: `flomes BR\n[${quality}]`,
         title: `${media.title || 'Filme'} (${officialYear || 'N/A'})\n🔊 ${audio}\n👤 Seeders: ${seeders}`,
         infoHash: tStream.infoHash
       });
