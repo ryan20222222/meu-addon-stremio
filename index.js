@@ -2,11 +2,11 @@ const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
 const axios = require('axios');
 
 const manifest = {
-  id: 'org.ryan.vejaaebr.v016',
-  version: '0.1.6',
+  id: 'org.ryan.vejaaebr.v017',
+  version: '0.1.7',
   name: 'VEJA AE BR',
-  icon: 'https://raw.githubusercontent.com/ryan20222222/meu-addon-stremio/main/vejaaestremio.png',
-  description: 'Filtro ultra-estrito 100% PT-BR (Bloqueio total de áudio inglês e estrangeiro)',
+  icon: 'https://cdn.jsdelivr.net/gh/ryan20222222/meu-addon-stremio@main/vejaaestremio.png',
+  description: 'Fonte focadas em achar filmes e Series com dublagem 100% PT-BR (Bloqueio total de áudio inglês e estrangeiro)',
   resources: ['stream'],
   types: ['movie', 'series'],
   catalogs: [],
@@ -108,7 +108,7 @@ async function getMediaInfo(type, id) {
 
 builder.defineStreamHandler(async ({ type, id }) => {
   console.log(`\n==================================================`);
-  console.log(`🔎 VEJA AE BR v0.1.6 | ID: ${id}`);
+  console.log(`🔎 VEJA AE BR v0.1.7 | ID: ${id}`);
 
   let allRawStreams = [];
 
@@ -168,4 +168,4 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
 const PORT = process.env.PORT || 7000;
 serveHTTP(builder.getInterface(), { port: PORT });
-console.log(`🚀 Servidor VEJA AE BR v0.1.6 ativo na porta ${PORT}`);
+console.log(`🚀 Servidor VEJA AE BR v0.1.7 ativo na porta ${PORT}`);
