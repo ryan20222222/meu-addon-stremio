@@ -2,10 +2,10 @@ const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
 const axios = require('axios');
 
 const manifest = {
-  id: 'org.ryan.nuvio.ptbr.v7',
-  version: '7.0.0',
-  name: 'Nuvio PT-BR Exclusivo',
-  description: 'Buscador blindado usando Torrentio como ponte (Filtro BR e Ano)',
+  id: 'org.ryan.flomesbr.v7',
+  version: '0.0.369',
+  name: 'flomes BR',
+  description: 'Addon blindado 100% BR e gratis usando Torrentio como ponte para filmes (as vezes instavel)',
   resources: ['stream'],
   types: ['movie', 'series'],
   catalogs: [],
@@ -66,7 +66,7 @@ async function getMediaInfo(type, id) {
 
 builder.defineStreamHandler(async ({ type, id }) => {
   console.log(`\n==================================================`);
-  console.log(`🔎 Nova busca no Nuvio! ID: ${id}`);
+  console.log(`🔎 Nova busca no flomes BR! ID: ${id}`);
 
   let streams = [];
 
@@ -76,7 +76,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     const officialYear = media.year ? String(media.year) : null;
     console.log(`🎬 Validando: "${media.title || 'Desconhecido'}" (${officialYear || '?'})`);
 
-    // 2. Faz a ponte pelo Torrentio (ele tem a base do Jackett/Prowlarr e não bloqueia a gente)
+    // 2. Faz a ponte pelo Torrentio
     console.log(`🌐 Extraindo links base do Torrentio...`);
     const torrentioUrl = `https://torrentio.strem.fun/stream/${type}/${id}.json`;
     
@@ -85,7 +85,6 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
     // 3. Aplica os seus filtros
     torrentioStreams.forEach(tStream => {
-      // O Torrentio manda o título completo do arquivo dentro do 'title'
       const fullText = (tStream.title || "").toLowerCase() + " " + (tStream.name || "").toLowerCase();
 
       // FILTRO 1: Só passa se tiver tag de dublagem do Brasil
@@ -95,7 +94,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
       if (officialYear && fullText.includes('20')) {
         const yearsInText = fullText.match(/20\d{2}/g);
         if (yearsInText && !yearsInText.includes(officialYear)) {
-          return; // Descarta se o ano for diferente do oficial
+          return; 
         }
       }
 
@@ -122,4 +121,4 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
 const PORT = process.env.PORT || 7000;
 serveHTTP(builder.getInterface(), { port: PORT });
-console.log(`🚀 Servidor Nuvio PT-BR rodando firme na porta ${PORT}`);
+console.log(`🚀 Servidor flomes BR rodando firme na porta ${PORT}`);
