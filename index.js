@@ -2,10 +2,10 @@ const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
 const axios = require('axios');
 
 const manifest = {
-  id: 'org.pessoal.meubuscador.ptbr.preciso',
-  version: '5.0.0',
-  name: 'Meu Buscador PT-BR Preciso',
-  description: 'Addon pessoal com filtro de ano, qualidade e áudio PT-BR',
+  id: 'org.pessoal.meubuscador.ptbr.v6', // Versão atualizada para forçar recarregamento no Stremio
+  version: '6.0.0',
+  name: 'Meu Buscador PT-BR',
+  description: 'Buscador de Torrents Dublados/Dual Áudio com filtro de ano e qualidade',
   resources: ['stream'],
   types: ['movie', 'series'],
   catalogs: [],
@@ -18,9 +18,10 @@ const httpConfig = {
   headers: {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
   },
-  timeout: 6000
+  timeout: 8000 // Tempo um pouco maior para evitar erro se a internet demorar
 };
 
+// Palavras para identificar se o torrent serve para você
 const PTBR_KEYWORDS = ['dublado', 'dual', 'pt-br', 'ptbr', 'portugues', 'pt_br'];
 
 function isPtBr(title) {
@@ -28,18 +29,20 @@ function isPtBr(title) {
   return PTBR_KEYWORDS.some(kw => t.includes(kw));
 }
 
+// Organiza as bandeirinhas de áudio para ficar bonito no Stremio
 function getAudioInfo(title) {
   const text = title.toLowerCase();
   if (text.includes('dual') || (text.includes('dublado') && text.includes('legendado'))) {
     return '🇧🇷 DUAL ÁUDIO';
   } else if (text.includes('dublado') || text.includes('ptbr') || text.includes('pt-br') || text.includes('portugues')) {
     return '🇧🇷 DUBLADO';
-  } else if (text.includes('legendado') || text.includes('subbed')) {
-    return '🇺🇸 LEGENDADO';
+  } else if (text.includes('legendado') || text.includes('subbed') || text.includes('leg')) {
+    return '🇺🇸 LEGENDADO (PT-BR)';
   }
   return '🇧🇷 PT-BR';
 }
 
+// Define a qualidade baseada no nome do arquivo
 function getQualityInfo(title) {
   const text = title.toLowerCase();
   if (text.includes('2160p') || text.includes('4k') || text.includes('uhd')) return '4K UHD';
@@ -48,6 +51,7 @@ function getQualityInfo(title) {
   return 'HD';
 }
 
+// Pega o nome oficial em Português e o Ano do filme (TMDB ou Cinemeta)
 async function getMediaInfo(type, id) {
   const rawId = id.split(':')[0];
   let title = null;
@@ -62,7 +66,9 @@ async function getMediaInfo(type, id) {
       title = res.data?.title || res.data?.name || res.data?.original_title;
       const dateStr = res.data?.release_date || res.data?.first_air_date;
       if (dateStr) year = dateStr.split('-')[0];
-    } catch (e) {}
+    } catch (e) {
+      console.log(`⚠️ Erro TMDB: ${e.message}`);
+    }
   }
 
   if (!title) {
@@ -70,66 +76,82 @@ async function getMediaInfo(type, id) {
       const res = await axios.get(`https://v3-cinemeta.stremio.com/meta/${type}/${rawId}.json`, httpConfig);
       title = res.data?.meta?.name;
       year = res.data?.meta?.year;
-    } catch (e) {}
+    } catch (e) {
+      console.log(`⚠️ Erro Cinemeta: ${e.message}`);
+    }
   }
 
   return { title, year };
 }
 
+// O coração do Addon: o que acontece quando você clica no filme
 builder.defineStreamHandler(async ({ type, id }) => {
+  console.log(`\n==================================================`);
+  console.log(`🔎 Requisição recebida! Tipo: ${type} | ID: ${id}`);
+
   let streams = [];
 
   try {
     const media = await getMediaInfo(type, id);
-    if (!media.title) return { streams: [] };
+    if (!media.title) {
+      console.log('❌ Título não encontrado nas bases de dados.');
+      return { streams: [] };
+    }
 
     const title = media.title;
     const year = media.year ? String(media.year) : null;
-    const searchQueries = [`${title} dublado`, `${title} dual`];
+    
+    console.log(`🎬 Título oficial: "${title}" (${year || 'Ano Desconhecido'})`);
 
-    for (const query of searchQueries) {
-      const url = `https://apibay.org/q.php?q=${encodeURIComponent(query)}`;
-      const res = await axios.get(url, httpConfig);
-      const torrents = res.data;
+    // Busca apenas pelo nome para garantir que venham resultados!
+    console.log(`🌐 Pesquisando no PirateBay por: "${title}"...`);
+    const url = `https://apibay.org/q.php?q=${encodeURIComponent(title)}`;
+    const res = await axios.get(url, httpConfig);
+    const torrents = res.data;
 
-      if (Array.isArray(torrents) && torrents[0]?.info_hash !== '0000000000000000000000000000000000000000') {
-        torrents.forEach(t => {
-          const tName = t.name;
-          const tLower = tName.toLowerCase();
+    if (Array.isArray(torrents) && torrents[0]?.info_hash !== '0000000000000000000000000000000000000000') {
+      torrents.forEach(t => {
+        const tName = t.name;
+        const tLower = tName.toLowerCase();
 
-          // Valida se tem termos em PT-BR
-          if (!isPtBr(tName)) return;
+        // 1º FILTRO: Descarta imediatamente se não tiver PT-BR/Dublado no nome
+        if (!isPtBr(tName)) return;
 
-          // Valida o ano: se o nome do torrent especificar um ano e ele for diferente do oficial, descarta para não misturar filmes homônimos
-          if (year && tLower.includes('20')) {
-            const yearsInTorrent = tLower.match(/20\d{2}/g);
-            if (yearsInTorrent && !yearsInTorrent.includes(year)) {
-              return;
-            }
+        // 2º FILTRO: Se tiver um ano no nome do torrent e não bater com o oficial, descarta
+        if (year && tLower.includes('20')) {
+          const yearsInTorrent = tLower.match(/20\d{2}/g);
+          if (yearsInTorrent && !yearsInTorrent.includes(year)) {
+            return;
           }
+        }
 
-          const quality = getQualityInfo(tName);
-          const audio = getAudioInfo(tName);
+        // Puxa as informações formatadas
+        const quality = getQualityInfo(tName);
+        const audio = getAudioInfo(tName);
 
-          streams.push({
-            name: `[${quality}]`,
-            title: `${title} (${year || 'N/A'})\n🔊 ${audio}\n👤 Seeders: ${t.seeders}`,
-            infoHash: t.info_hash.toLowerCase()
-          });
+        // Adiciona à lista que vai pro Stremio
+        streams.push({
+          name: `[${quality}]`,
+          title: `${title} (${year || 'N/A'})\n🔊 ${audio}\n👤 Seeders: ${t.seeders}`,
+          infoHash: t.info_hash.toLowerCase()
         });
-      }
+      });
     }
 
-    // Remove duplicados
+    // Remove resultados duplicados
     streams = streams.filter((v, i, a) => a.findIndex(t => t.infoHash === v.infoHash) === i);
 
+    console.log(`✅ Encontrados ${streams.length} torrent(s) válidos PT-BR.`);
+
   } catch (e) {
-    console.log('Erro:', e.message);
+    console.log(`❌ Erro geral: ${e.message}`);
   }
 
+  console.log(`==================================================\n`);
   return { streams };
 });
 
+// Inicialização do servidor pronto pro Render.com
 const PORT = process.env.PORT || 7000;
 serveHTTP(builder.getInterface(), { port: PORT });
-console.log(`Servidor ativo na porta ${PORT}`);
+console.log(`🚀 Servidor PT-BR ativo na porta ${PORT}`);
