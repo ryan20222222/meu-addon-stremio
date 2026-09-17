@@ -109,5 +109,8 @@ builder.defineStreamHandler(async ({ type, id }) => {
   return { streams };
 });
 
-serveHTTP(builder.getInterface(), { port: 7000 });
-console.log('Servidor PT-BR + TMDB ativo em: http://127.0.0.1:7000/manifest.json');
+
+const PORT = process.env.PORT || 7000;
+
+serveHTTP(builder.getInterface(), { port: PORT });
+console.log(`Servidor ativo na porta ${PORT}`);
