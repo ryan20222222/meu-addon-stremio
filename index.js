@@ -1,116 +1,110 @@
 const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
-const axios = require('axios');
+const fetch = require('node-fetch'); // ou global fetch se usar Node v18+
 
-const manifest = {
-  id: 'org.pessoal.meubuscador.ptbr.tmdb',
-  version: '4.0.0',
-  name: 'Meu Buscador PT-BR',
-  description: 'Addon pessoal com suporte a TMDB e Cinemeta (PT-BR)',
-  resources: ['stream'],
-  types: ['movie', 'series'],
-  catalogs: [],
-  idPrefixes: ['tt', 'tmdb'] // Aceita IDs do IMDb e do TMDB
-};
-
-const builder = new addonBuilder(manifest);
-
-const httpConfig = {
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-  },
-  timeout: 6000
-};
-
-const PTBR_KEYWORDS = ['dublado', 'dual', 'pt-br', 'ptbr', 'portugues', 'pt_br'];
-
-function isPtBr(title) {
-  const t = title.toLowerCase();
-  return PTBR_KEYWORDS.some(kw => t.includes(kw));
-}
-
-// Função para descobrir o título do filme/série em PT-BR
-async function getTitle(type, id) {
-  const rawId = id.split(':')[0];
-
-  // 1. Se o ID for do TMDB (ex: tmdb:550)
-  if (rawId.startsWith('tmdb:')) {
-    const tmdbNum = rawId.replace('tmdb:', '');
-    const tmdbType = (type === 'series' || type === 'tv') ? 'tv' : 'movie';
-    try {
-      console.log(`🌐 Buscando titulo em PT-BR no TMDB para ID ${tmdbNum}...`);
-      const url = `https://api.themoviedb.org/3/${tmdbType}/${tmdbNum}?api_key=1f5428d06f4f40d7020c1073180b63d9&language=pt-BR`;
-      const res = await axios.get(url, httpConfig);
-      const title = res.data?.title || res.data?.name || res.data?.original_title;
-      if (title) return title;
-    } catch (e) {
-      console.log(`⚠️ Erro TMDB: ${e.message}`);
-    }
-  }
-
-  // 2. Se for ID do IMDb (ex: tt0111161) ou fallback do Cinemeta
-  try {
-    console.log(`🌐 Buscando titulo no Cinemeta para ID ${rawId}...`);
-    const res = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${rawId}.json`, httpConfig);
-    return res.data?.meta?.name;
-  } catch (e) {
-    console.log(`⚠️ Erro Cinemeta: ${e.message}`);
-  }
-
-  return null;
-}
-
-builder.defineStreamHandler(async ({ type, id }) => {
-  console.log(`\n==================================================`);
-  console.log(`🔎 Requisição recebida! Type: ${type} | ID: ${id}`);
-
-  let streams = [];
-
-  try {
-    const title = await getTitle(type, id);
-
-    if (!title) {
-      console.log('❌ Nao foi possivel identificar o titulo.');
-      return { streams: [] };
-    }
-
-    console.log(`🎬 Titulo identificado: "${title}"`);
-
-    // Busca no PirateBay usando o nome em Português
-    const searchQueries = [`${title} dublado`, `${title} dual`];
-
-    for (const query of searchQueries) {
-      console.log(`🌐 Pesquisando no PirateBay por: "${query}"...`);
-      const url = `https://apibay.org/q.php?q=${encodeURIComponent(query)}`;
-      const res = await axios.get(url, httpConfig);
-      const torrents = res.data;
-
-      if (Array.isArray(torrents) && torrents[0]?.info_hash !== '0000000000000000000000000000000000000000') {
-        torrents.forEach(t => {
-          if (isPtBr(t.name)) {
-            streams.push({
-              title: `🟢 [PT-BR] ${t.name}\n👤 Seeders: ${t.seeders}`,
-              infoHash: t.info_hash.toLowerCase()
-            });
-          }
-        });
-      }
-    }
-
-    // Remove resultados duplicados
-    streams = streams.filter((v, i, a) => a.findIndex(t => t.infoHash === v.infoHash) === i);
-
-    console.log(`✅ Encontrados ${streams.length} torrent(s) PT-BR.`);
-
-  } catch (e) {
-    console.log(`❌ Erro durante a busca: ${e.message}`);
-  }
-
-  console.log(`==================================================\n`);
-  return { streams };
+const builder = new addonBuilder({
+    id: 'org.meuaddon.br',
+    version: '1.0.0',
+    name: 'Meu Addon BR',
+    description: 'Buscador PT-BR calibrado com qualidade e áudio',
+    resources: ['stream'],
+    types: ['movie', 'series'],
+    catalogs: []
 });
 
+// Helper para extrair Áudio/Legenda com Emojis
+function getAudioInfo(title) {
+    const text = title.toLowerCase();
+    if (text.includes('dual') || text.includes('tripla') || (text.includes('dublado') && text.includes('legendado'))) {
+        return '🇧🇷 DUAL ÁUDIO (PT-BR / EN)';
+    } else if (text.includes('dublado') || text.includes('ptbr') || text.includes('pt-br') || text.includes('portugues')) {
+        return '🇧🇷 DUBLADO (PT-BR)';
+    } else if (text.includes('legendado') || text.includes('subbed') || text.includes('leg')) {
+        return '🇺🇸 LEGENDADO (PT-BR)';
+    } else if (text.includes('english') || text.includes('eng')) {
+        return '🇺🇸 INGLÊS (Sem Dublagem)';
+    }
+    return '🇧🇷 PT-BR / DUAL'; // Padrão se não especificar
+}
+
+// Helper para extrair Qualidade de Vídeo
+function getQualityInfo(title) {
+    const text = title.toLowerCase();
+    if (text.includes('2160p') || text.includes('4k') || text.includes('uhd')) {
+        return '4K UHD';
+    } else if (text.includes('1080p') || text.includes('fhd') || text.includes('fullhd')) {
+        return '1080p Full HD';
+    } else if (text.includes('720p') || text.includes('hd')) {
+        return '720p HD';
+    }
+    return '720p';
+}
+
+// Handler Principal do Stremio
+builder.defineStreamHandler(async (args) => {
+    if (args.type !== 'movie' && args.type !== 'series') {
+        return { streams: [] };
+    }
+
+    try {
+        // 1. Pega os dados oficiais do filme (Título e Ano) do Cinemeta pelo IMDB ID (ex: tt1234567)
+        const metaRes = await fetch(`https://v3-cinemeta.stremio.com/meta/${args.type}/${args.id}.json`);
+        const metaData = await metaRes.json();
+        
+        if (!metaData || !metaData.meta) return { streams: [] };
+
+        const movieTitle = metaData.meta.name; // Ex: "Obsessão"
+        const movieYear = metaData.meta.year;  // Ex: "2025"
+
+        // 2. Busca nos seus provedores/fontes usando o título oficial
+        // (Ajuste essa chamada para a sua função real de busca de torrents/links)
+        const rawResults = await buscarFontes(movieTitle); 
+
+        // 3. FILTRAGEM ESTRITA: Remove filmes errados, animes indesejados e anos diferentes
+        const filteredResults = rawResults.filter(item => {
+            const itemTitleLower = item.title.toLowerCase();
+            
+            // Requisito 1: O ano do filme DEVE estar no nome do arquivo (se disponível)
+            if (movieYear && !itemTitleLower.includes(String(movieYear))) {
+                return false; // Descarta se for de outro ano (evita filmes antigos com mesmo nome)
+            }
+
+            // Requisito 2: Se não for um anime nas metadados, ignora animes que aparecerem na busca
+            if (metaData.meta.genres && !metaData.meta.genres.includes('Animation')) {
+                if (itemTitleLower.includes('anime') || itemTitleLower.includes('batch')) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+
+        // 4. Formata os resultados no padrão bonito do Stremio
+        const streams = filteredResults.map(item => {
+            const quality = getQualityInfo(item.title);
+            const audio = getAudioInfo(item.title);
+
+            return {
+                name: `[${quality}]`,
+                title: `${movieTitle} (${movieYear})\n🔊 ${audio}\n💾 ${item.size || 'HD'}`,
+                url: item.url,       // Se for link direto (HTTP/MP4/HLS)
+                infoHash: item.hash  // Se for Magnet Link / Torrent
+            };
+        });
+
+        return { streams };
+
+    } catch (err) {
+        console.error("Erro no processamento:", err);
+        return { streams: [] };
+    }
+});
+
+// Exemplo de função mock de busca (substitua pela sua lógica real)
+async function buscarFontes(query) {
+    // Aqui entra o seu scraper/fetch na sua fonte de torrents/links
+    return [];
+}
 
 const PORT = process.env.PORT || 7000;
-
 serveHTTP(builder.getInterface(), { port: PORT });
 console.log(`Servidor ativo na porta ${PORT}`);
