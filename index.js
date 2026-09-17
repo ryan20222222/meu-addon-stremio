@@ -2,8 +2,8 @@ const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
 const axios = require('axios');
 
 const manifest = {
-  id: 'org.pessoal.meubuscador.ptbr.v6', // Versão atualizada para forçar recarregamento no Stremio
-  version: '6.0.0',
+  id: 'org.pessoal.meubuscador.ptbr.v6', 
+  version: '6.0.1',
   name: 'Meu Buscador PT-BR',
   description: 'Buscador de Torrents Dublados/Dual Áudio com filtro de ano e qualidade',
   resources: ['stream'],
@@ -18,7 +18,7 @@ const httpConfig = {
   headers: {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
   },
-  timeout: 8000 // Tempo um pouco maior para evitar erro se a internet demorar
+  timeout: 8000 
 };
 
 // Palavras para identificar se o torrent serve para você
@@ -73,7 +73,8 @@ async function getMediaInfo(type, id) {
 
   if (!title) {
     try {
-      const res = await axios.get(`https://v3-cinemeta.stremio.com/meta/${type}/${rawId}.json`, httpConfig);
+      // LINK CORRIGIDO AQUI PARA strem.io
+      const res = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${rawId}.json`, httpConfig);
       title = res.data?.meta?.name;
       year = res.data?.meta?.year;
     } catch (e) {
