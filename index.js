@@ -2,11 +2,11 @@ const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
 const axios = require('axios');
 
 const manifest = {
-  id: 'org.ryan.vejaaebr.v019',
-  version: '0.1.9',
-  name: 'VEJA AE BR ELITE',
+  id: 'org.ryan.vejaaebr.v018',
+  version: '0.1.8',
+  name: 'VEJA AE BR',
   icon: 'https://cdn.jsdelivr.net/gh/ryan20222222/meu-addon-stremio@main/vejaaestremio.png',
-  description: 'A Elite da Filtragem PT-BR: Dublagem Autêntica e Nacional Puro. Rejeição severa de Dual e Estrangeiro.',
+  description: 'Filtro ultra-estrito 100% PT-BR com bloqueio severo de fontes indianas falsas',
   resources: ['stream'],
   types: ['movie', 'series'],
   catalogs: [],
@@ -15,76 +15,73 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
-// Configuração otimizada para Render Gratuito: tempo limite justo para as melhores fontes
 const httpConfig = {
-  timeout: 9000, 
+  timeout: 8000,
   headers: {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
   }
 };
 
-// =========================================================================================
-// NÚCLEO DE INTELIGÊNCIA DE FILTRAGEM (REGEX DE ALTA PRECISÃO)
-// =========================================================================================
+// BLOQUEIO SEVERO: Sites de torrents indiano que usam tags falsas
+const SEVERE_BLOCK_SOURCES_REGEX = /\b(digitalmaza|movies\.digitalmaza\.org)\b/i;
 
-// 1. BLACKLIST TOTAL DE IDIOMAS (Qualquer menção a estes idiomas, descarta)
-// Inclui Hindi (hin, hindi, indian), Espanhol (esp, lat, espanol), PT-PT, e muitos outros.
-const BLACK_LIST_REGEX = /\b(hindi|hin|indian|bollywood|espanol|español|castellano|latino|lat|pt-pt|pt_pt|portugal|pt-eu|turkish|turco|turkce|russian|russo|french|francais|frances|german|aleman|italian|italiano|korean|japanese|chinese)\b/i;
+// Idiomas estrangeiros e variações de Portugal terminantemente bloqueados
+const FOREIGN_LANG_REGEX = /\b(english|eng|espanol|español|castellano|latino|doblado|lat|pt-pt|pt_pt|portugal|pt-eu|turkish|turco|turkce|russian|russo|hindi|french|francais|frances|german|aleman|italian|italiano|korean|japanese|chinese)\b/i;
 
-// 2. REJEIÇÃO SEVERA DE DUAL E MULTI (A pedido do usuário, para focar em PT-BR PURO)
-// Bloqueia termos como dual-audio, dual, multiaudio, milti, m-audio
-const REJECT_DUAL_REGEX = /\b(dual|multi|milti|m-audio|multi-audio|dual-audio)\b/i;
+// Tags OBRIGATÓRIAS de validação do Brasil
+const PTBR_MATCH_REGEX = /\b(pt-br|ptbr|pt_br|dublado|dual|brazilian|audio br|audio pt-br|audio pt)\b/i;
 
-// 3. WHITELIST OBRIGATÓRIA BR (Todo torrent *precisa* ter uma destas tags explicitamente)
-// Exige "dublado", "ptbr", "audio-br", etc. com fronteiras de palavra corretas (\b)
-const WHITE_LIST_REGEX = /\b(dublado|dub|ptbr|pt-br|pt_br|brazilian|audio br|audio pt-br|audio pt)\b/i;
-
-function isStrictlyFunctionalPtBr(text, isNationalContent = false) {
+function isStrictPtBr(text, isNationalContent = false) {
   const lower = text.toLowerCase();
 
-  // Produções originais do Brasil (TMDB confirma ser PT) passam direto, não precisam de tag "dublado"
+  // Produções originais do Brasil passam direto
   if (isNationalContent) return true;
 
-  // VERIFICAÇÃO DE ELITE (Filtro Eliminatório)
+  // 1. REJEIÇÃO SEVERA DE FONTES INDIANAS: Bloqueia sites conhecidos por tags falsas
+  if (SEVERE_BLOCK_SOURCES_REGEX.test(lower)) {
+    return false;
+  }
 
-  // 1. REJEIÇÃO POR FONTE FALSA (Bloqueia sites indianos conhecidos que usam tags falsas)
-  if (/\b(digitalmaza|movies\.digitalmaza\.org)\b/i.test(lower)) return false;
+  // 2. REJEIÇÃO IMEDIATA POR IDIOMA: Se não contiver tag explícita de PT-BR/Dublado, descarta
+  const hasPtBr = PTBR_MATCH_REGEX.test(lower);
+  if (!hasPtBr) {
+    return false;
+  }
 
-  // 2. REJEIÇÃO POR DUAL (Se o usuário quer 100%, removemos o Dual que confunde)
-  if (REJECT_DUAL_REGEX.test(lower)) return false;
+  // 3. BLOQUEIO DE PORTUGUÊS DE PORTUGAL
+  if (/\b(pt-pt|pt_pt|portugal|pt-eu)\b/i.test(lower)) {
+    return false;
+  }
 
-  // 3. REJEIÇÃO POR IDIOMA ESTRANGEIRO (Se mencionar qualquer idioma da blacklist, tchau)
-  if (BLACK_LIST_REGEX.test(lower)) return false;
+  // 4. Se houver termo de outro idioma sem "pt-br" ou "dublado" junto, bloqueia
+  const hasForeign = FOREIGN_LANG_REGEX.test(lower);
+  const hasExplicitPtBrTag = /\b(pt-br|ptbr|pt_br|dublado)\b/i.test(lower);
 
-  // 4. WHITELIST OBRIGATÓRIA (Se passamos por tudo e não tem NENHUMA tag BR, descartamos o padrão inglês)
-  if (!WHITE_LIST_REGEX.test(lower)) return false;
+  if (hasForeign && !hasExplicitPtBrTag) {
+    return false;
+  }
 
   return true;
 }
 
-// =========================================================================================
-// AUXILIARES DE FORMATAÇÃO E METADADOS
-// =========================================================================================
-
 function getAudioInfo(title) {
-  // Como removemos Dual, os labels mudam. Agora é Dublagem ou Nacional.
   const text = title.toLowerCase();
-  // Se contiver tag BR explicita, é Dublado Autêntico
-  if (WHITE_LIST_REGEX.test(text)) return '🇧🇷 DUBLAGEM PT-BR';
+  if (text.includes('dual') || (text.includes('dublado') && text.includes('legendado'))) return '🇧🇷 DUAL ÁUDIO';
+  if (text.includes('dublado') || text.includes('ptbr') || text.includes('pt-br') || text.includes('portugues')) return '🇧🇷 DUBLADO (PT-BR)';
   return '🇧🇷 PT-BR';
 }
 
 function getQualityInfo(title) {
   const text = title.toLowerCase();
-  if (text.includes('2160p') || text.includes('4k')) return '4K UHD';
-  if (text.includes('1080p') || text.includes('fullhd')) return '1080p FHD';
-  if (text.includes('720p')) return '720p HD';
+  if (text.includes('2160p') || text.includes('4k') || text.includes('uhd')) return '4K UHD';
+  if (text.includes('1080p') || text.includes('fhd') || text.includes('fullhd')) return '1080p Full HD';
+  if (text.includes('720p') || text.includes('hd')) return '720p HD';
   return 'HD';
 }
 
 function getSeeders(title) {
   const match = title.match(/👤\s*(\d+)/);
-  return match ? parseInt(match[1]) : 0; // Retorna número para ordenação
+  return match ? match[1] : 'N/A';
 }
 
 async function getMediaInfo(type, id) {
@@ -102,87 +99,81 @@ async function getMediaInfo(type, id) {
       title = res.data?.title || res.data?.name;
       const dateStr = res.data?.release_date || res.data?.first_air_date;
       if (dateStr) year = dateStr.split('-')[0];
-      // Verifica se o idioma original é português OU o país de origem é Brasil
       if (res.data?.original_language === 'pt' || res.data?.origin_country?.includes('BR')) isNational = true;
     } catch (e) {}
   }
-  // Fallback Cinemeta removido para garantir que só buscamos TMDB para nacionalidade precisa.
+
+  if (!title) {
+    try {
+      const res = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${rawId}.json`, httpConfig);
+      title = res.data?.meta?.name;
+      year = res.data?.meta?.year;
+    } catch (e) {}
+  }
+
   return { title, year, isNational };
 }
 
-// =========================================================================================
-// PROCESSADOR DE STREAMS AGREGADO
-// =========================================================================================
-
 builder.defineStreamHandler(async ({ type, id }) => {
   console.log(`\n==================================================`);
-  console.log(`🔎 VEJA AE BR ELITE v0.1.9 | ID: ${id}`);
+  console.log(`🔎 VEJA AE BR v0.1.8 | ID: ${id}`);
 
-  let streams = [];
   let allRawStreams = [];
 
   try {
     const media = await getMediaInfo(type, id);
-    if (!media.title) {
-       console.log(`⚠️ ID não mapeado no TMDB. Abortando busca para evitar falsos positivos.`);
-       return { streams: [] };
-    }
     const officialYear = media.year ? String(media.year) : null;
 
-    // Agregador Multi-Fonte (Torrentio + Knightcrawler)
     const endpoints = [
       `https://torrentio.strem.fun/stream/${type}/${id}.json`,
       `https://knightcrawler.elfhosted.com/stream/${type}/${id}.json`
     ];
 
-    const requests = endpoints.map(url => axios.get(url, httpConfig).catch(() => null)); // Garante que um falha não quebre a Promise.all
-    const results = await Promise.all(requests);
+    const requests = endpoints.map(url => axios.get(url, httpConfig));
+    const results = await Promise.allSettled(requests);
 
     results.forEach(res => {
-      if (res && res.data?.streams) {
-        allRawStreams.push(...res.data.streams);
+      if (res.status === 'fulfilled' && res.value.data?.streams) {
+        allRawStreams.push(...res.value.data.streams);
       }
     });
 
-    // Deduplicação Inteligente (Remove hashes duplicados primeiro)
-    const uniqueRawStreams = allRawStreams.filter((v, i, a) => a.findIndex(t => t.infoHash === v.infoHash) === i);
+    const uniqueStreams = allRawStreams.filter((v, i, a) => a.findIndex(t => t.infoHash === v.infoHash) === i);
 
-    uniqueRawStreams.forEach(tStream => {
+    let streams = [];
+
+    uniqueStreams.forEach(tStream => {
       const fullText = (tStream.title || "").toLowerCase() + " " + (tStream.name || "").toLowerCase();
 
-      // 1. NÚCLEO DE ELITE: Filtragem Severa
-      if (!isStrictlyFunctionalPtBr(fullText, media.isNational)) return;
+      // 1. Filtro de idioma ultra-restritivo com bloqueio de fontes indianas
+      if (!isStrictPtBr(fullText, media.isNational)) return;
 
-      // 2. Validação Rigorosa de Ano (Regex para evitar falso positivo do 19xx)
+      // 2. Validação de ano
       if (officialYear && fullText.includes('20')) {
         const yearsInText = fullText.match(/20\d{2}/g);
         if (yearsInText && !yearsInText.includes(officialYear)) return;
       }
 
       const quality = getQualityInfo(fullText);
-      const audioLabel = getAudioInfo(fullText);
+      const audio = getAudioInfo(fullText);
       const seeders = getSeeders(tStream.title || "");
 
       streams.push({
-        name: `VEJA AE BR ELITE\n[${quality}]`,
-        title: `${media.title} (${officialYear || 'N/A'})\n🔊 ${audioLabel}\n👤 Seeders: ${seeders}`,
-        infoHash: tStream.infoHash,
-        seeders: seeders // Guardamos para ordenação
+        name: `VEJA AE BR\n[${quality}]`,
+        title: `${media.title || 'Filme'} (${officialYear || 'N/A'})\n🔊 ${audio}\n👤 Seeders: ${seeders}`,
+        infoHash: tStream.infoHash
       });
     });
 
-    // ORDENAÇÃO DE ELITE: Ordenar por Seeders (Mais estável primeiro)
-    streams.sort((a, b) => b.seeders - a.seeders);
-
-    console.log(`✅ Aprovados ${streams.length} link(s) Autênticos PT-BR de ${uniqueRawStreams.length} capturados.`);
+    console.log(`✅ Aprovados ${streams.length} link(s) 100% PT-BR de ${uniqueStreams.length} capturados.`);
     return { streams };
 
   } catch (e) {
-    console.log(`❌ Erro crítico no processamento de Elite: ${e.message}`);
+    console.log(`❌ Erro no processamento: ${e.message}`);
     return { streams: [] };
   }
 });
 
 const PORT = process.env.PORT || 7000;
 serveHTTP(builder.getInterface(), { port: PORT });
-console.log(`🚀 Servidor VEJA AE BR ELITE v0.1.9 ativo na porta ${PORT}`);
+console.log(`🚀 Servidor VEJA AE BR v0.1.8 ativo na porta ${PORT}`);
