@@ -2,11 +2,11 @@ const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
 const axios = require('axios');
 
 const manifest = {
-  id: 'org.ryan.vejaaebr.v0111',
-  version: '0.1.11',
+  id: 'org.ryan.vejaaebr.v0112',
+  version: '0.1.12',
   name: 'VEJA AE BR ELITE',
   icon: 'https://i.imgur.com/507gQfU.png',
-  description: 'A Elite da Filtragem PT-BR: Dublagem Autêntica e Nacional Puro. Rejeição severa de Dual e Estrangeiro.',
+  description: 'Elite PT-BR: Fontes independentes (Knightcrawler, MediaFusion, Annatar). Zero Pirate Bay.',
   resources: ['stream'],
   types: ['movie', 'series'],
   catalogs: [],
@@ -15,9 +15,8 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
-// Configuração otimizada para Render Gratuito
 const httpConfig = {
-  timeout: 9000, 
+  timeout: 10000, // Tempo extra para consultar 3 fontes pesadas
   headers: {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
   }
@@ -37,16 +36,9 @@ function isStrictlyFunctionalPtBr(text, isNationalContent = false) {
 
   if (isNationalContent) return true;
 
-  // 1. REJEIÇÃO POR FONTE FALSA (Bloqueia sites indianos)
   if (/\b(digitalmaza|movies\.digitalmaza\.org)\b/i.test(lower)) return false;
-
-  // 2. REJEIÇÃO POR DUAL 
   if (REJECT_DUAL_REGEX.test(lower)) return false;
-
-  // 3. REJEIÇÃO POR IDIOMA ESTRANGEIRO
   if (BLACK_LIST_REGEX.test(lower)) return false;
-
-  // 4. WHITELIST OBRIGATÓRIA
   if (!WHITE_LIST_REGEX.test(lower)) return false;
 
   return true;
@@ -77,7 +69,6 @@ async function getMediaInfo(type, id) {
   let year = null;
   let isNational = false;
 
-  // 1. Tenta pegar pelo TMDB se for ID tmdb:
   if (rawId.startsWith('tmdb:')) {
     const tmdbNum = rawId.replace('tmdb:', '');
     const tmdbType = (type === 'series' || type === 'tv') ? 'tv' : 'movie';
@@ -91,7 +82,6 @@ async function getMediaInfo(type, id) {
     } catch (e) {}
   }
 
-  // 2. Se for ID do IMDB (tt...), pega os dados básicos do Cinemeta nativo do Stremio
   if (!title) {
     try {
       const res = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${rawId}.json`, httpConfig);
@@ -100,7 +90,6 @@ async function getMediaInfo(type, id) {
     } catch (e) {}
   }
 
-  // 3. Confirmação reversa: Tenta checar a nacionalidade no TMDB usando o ID do IMDB
   if (rawId.startsWith('tt')) {
      try {
         const findUrl = `https://api.themoviedb.org/3/find/${rawId}?api_key=1f5428d06f4f40d7020c1073180b63d9&external_source=imdb_id`;
@@ -119,7 +108,7 @@ async function getMediaInfo(type, id) {
 
 builder.defineStreamHandler(async ({ type, id }) => {
   console.log(`\n==================================================`);
-  console.log(`🔎 VEJA AE BR ELITE v0.1.11 | ID: ${id}`);
+  console.log(`🔎 VEJA AE BR ELITE v0.1.12 | ID: ${id}`);
 
   let streams = [];
   let allRawStreams = [];
@@ -127,14 +116,16 @@ builder.defineStreamHandler(async ({ type, id }) => {
   try {
     const media = await getMediaInfo(type, id);
     if (!media.title) {
-       console.log(`⚠️ ID não mapeado no TMDB ou Cinemeta. Abortando busca para evitar falsos positivos.`);
+       console.log(`⚠️ ID não mapeado no TMDB ou Cinemeta. Abortando busca.`);
        return { streams: [] };
     }
     const officialYear = media.year ? String(media.year) : null;
 
+    // FONTES DE ELITE (Sem Torrentio/Pirate Bay)
     const endpoints = [
-      `https://torrentio.strem.fun/stream/${type}/${id}.json`,
-      `https://knightcrawler.elfhosted.com/stream/${type}/${id}.json`
+      `https://knightcrawler.elfhosted.com/stream/${type}/${id}.json`,
+      `https://mediafusion.elfhosted.com/stream/${type}/${id}.json`,
+      `https://annatar.elfhosted.com/stream/${type}/${id}.json`
     ];
 
     const requests = endpoints.map(url => axios.get(url, httpConfig).catch(() => null)); 
@@ -154,7 +145,6 @@ builder.defineStreamHandler(async ({ type, id }) => {
       // Filtragem Severa
       if (!isStrictlyFunctionalPtBr(fullText, media.isNational)) return;
 
-      // Validação de Ano
       if (officialYear && fullText.includes('20')) {
         const yearsInText = fullText.match(/20\d{2}/g);
         if (yearsInText && !yearsInText.includes(officialYear)) return;
@@ -172,10 +162,9 @@ builder.defineStreamHandler(async ({ type, id }) => {
       });
     });
 
-    // Ordenar por Seeders
     streams.sort((a, b) => b.seeders - a.seeders);
 
-    console.log(`✅ Aprovados ${streams.length} link(s) Autênticos PT-BR de ${uniqueRawStreams.length} capturados.`);
+    console.log(`✅ Aprovados ${streams.length} link(s) Autênticos PT-BR de ${uniqueRawStreams.length} capturados pelas Novas Fontes.`);
     return { streams };
 
   } catch (e) {
@@ -186,4 +175,4 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
 const PORT = process.env.PORT || 7000;
 serveHTTP(builder.getInterface(), { port: PORT });
-console.log(`🚀 Servidor VEJA AE BR ELITE v0.1.11 ativo na porta ${PORT}`);
+console.log(`🚀 Servidor VEJA AE BR ELITE v0.1.12 ativo na porta ${PORT}`);
